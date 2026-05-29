@@ -7,6 +7,30 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.1] — save_key hardening
+
+Lifts two defenses from Muninn v1.11.1's `save_key` into gungnir so
+every tool using the library inherits them automatically.
+
+### Added
+
+- `KeyFileSymlinkError` — raised by `save_key()` when the target key
+  file already exists as a symlink. Closes a redirect-to-arbitrary-
+  file attack vector if anyone can plant a symlink in the config dir.
+- `save_key()` now opens the file with `O_CREAT|O_TRUNC` at mode
+  `0o600` atomically, so the file is never world-readable — not even
+  for the microseconds between `write_text()` and a subsequent
+  `chmod()`. Previously the perms tightened only after the write.
+
+### Compatibility
+
+- API surface unchanged for callers that aren't writing key files.
+- `save_key()` callers that didn't catch `KeyFileSymlinkError` will
+  now see the exception bubble up where previously the function would
+  silently follow the symlink. Treated as a defect fix; bumped patch
+  rather than minor because legitimate callers never hit the symlink
+  path.
+
 ## [0.1.0] — Initial release
 
 First release. Extracted from
