@@ -1,0 +1,34 @@
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "gungnir"
+version = "0.1.0"
+description = "Shared transport client for the WDGoWars (wdgwars.pl) feeders — HMAC envelope, cooldown, silent-drop detection. Used by Muninn (ADS-B), Heimdall (mesh), wigle-to-wdgwars (WiFi/BLE)."
+readme = "README.md"
+requires-python = ">=3.10"
+license = {text = "MIT"}
+authors = [{name = "Zach B.", email = "52333936+HiroAlleyCat@users.noreply.github.com"}]
+keywords = ["wdgwars", "wardriving", "hmac", "client"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Internet :: WWW/HTTP",
+]
+
+[project.urls]
+Homepage = "https://github.com/HiroAlleyCat/gungnir"
+Repository = "https://github.com/HiroAlleyCat/gungnir"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["gungnir*"]
+
+[tool.setuptools.package-data]
+# PEP 561 — ship the inline type hints to consumers using mypy/pyright.
+gungnir = ["py.typed"]

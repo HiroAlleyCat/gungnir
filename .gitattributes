@@ -1,0 +1,12 @@
+# Force LF for source so a Windows checkout doesn't ship CRLF to Linux
+# consumers (cron jobs, PyPI builds). Mirrors the pattern used by other
+# repos in this org after the Sleipnir relocation taught us this lesson.
+* text=auto eol=lf
+*.py text eol=lf
+*.toml text eol=lf
+*.md text eol=lf
+*.txt text eol=lf
+LICENSE text eol=lf
+.gitignore text eol=lf
+.gitattributes text eol=lf
+py.typed text eol=lf

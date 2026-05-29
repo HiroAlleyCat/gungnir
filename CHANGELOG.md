@@ -1,0 +1,126 @@
+# Changelog
+
+All notable changes to this project will be documented in this file.
+
+The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
+and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
+
+## [Unreleased]
+
+## [0.1.0] — Initial release
+
+First release. Extracted from
+[Muninn v1.11.1](https://github.com/HiroAlleyCat/adsb-to-wdgwars/releases/tag/v1.11.1)
+to be shared by Muninn, Heimdall, and wigle-to-wdgwars without each tool
+maintaining its own copy.
+
+### Added
+
+- `gungnir.Client` — high-level API with per-tool `tool`/`version`
+  identity, `timeout` / `whoami_timeout` / `max_attempts` /
+  `chunk_cooldown` / `user_agent_extra` defaults, and `__repr__`.
+- `gungnir.envelope.build_envelope()` and `build_payload()` — HMAC-SHA256
+  signed envelope for `/api/upload/`. Byte-identical to Muninn v1.11.1
+  output for the same (payload, key, nonce) input — verified by a
+  parity test that imports muninn.py and compares signatures.
+- `gungnir.transport.send()` — batched upload to the signed endpoint.
+- `gungnir.transport.whoami()` — `/api/me` identity check.
+- `gungnir.keys` — API-key resolution with the documented precedence
+  `cli → env → file`, plus `scrub()` for redacting keys from log lines.
+- `gungnir.cooldown` — persistent server-cooldown state (`cooldown.json`
+  in the per-tool config dir). Survives across cron invocations so a
+  429 doesn't get hammered.
+- `gungnir.hwm` — high-water-mark tracking (`hwm.json` in the per-tool
+  config dir) for external monitoring.
+- `gungnir.diagnostics.check_silent_drop()` — detects the
+  HTTP-200-ok-true-zero-counters pattern from Muninn v1.11.1 (locosp's
+  v4 server-side type validation could silently drop every record while
+  returning success).
+
+### Behavior decisions
+
+These are the opinionated calls in v0.1.0. Each has a critic vector
+attached — they're listed here so the rationale survives outside this
+repo's commit history.
+
+- **`send()` requires exactly one of `aircraft`/`networks`/`meshcore_nodes`.**
+  The wire envelope allows mixing the three slots, but no real feeder
+  needs that today. Forbidding mixed payloads keeps the contract clean
+  and reduces "did you mean to send nothing?" surprises. Empty list is
+  a no-op (returns 0); zero or multiple slots raises `ValueError`.
+
+- **A silent drop returns `rc=1`, not just a warning.** Muninn v1.11.1
+  warned but exited 0 — a transitional compromise. Gungnir is strict:
+  if the detector fires, the caller exits non-zero so cron sees the
+  failure. Detecting a failure and reporting success is broken behavior
+  for a library.
+
+- **429 raises `BatchAborted` and stops the whole batch.** Sending more
+  chunks at a rate-limited server only deepens the cooldown. The
+  cooldown deadline is persisted before raising, so the next cron tick
+  respects it. Callers catching `BatchAborted` may inspect
+  `.retry_after`.
+
+- **Retry transient errors with exponential backoff** (5xx and
+  `URLError`). 3 attempts by default, starting at 2s. 4xx is not
+  retried. Configurable via `Client(max_attempts=...)`.
+
+- **`scrub()` redacts on any non-empty match.** Muninn required key
+  length > 8 to redact; the threshold protected against nothing real
+  and could leak short test keys. Short keys redact to `…`; longer
+  keys redact to `<first-4>…<last-4>`.
+
+- **`logging` module, never `print()`.** The library never configures
+  handlers. Consumers do `logging.basicConfig()` (or whatever) to wire
+  up routing.
+
+- **Zero external dependencies.** Uses `urllib` from the standard
+  library. `requests` would be faster (connection reuse), but the lean
+  install matters more for a library meant to be embedded in small
+  feeders.
+
+- **Inter-chunk cooldown defaults to 1s.** A batched `send()` sleeps
+  briefly between chunks (none after the last) so a 30-chunk batch
+  doesn't blast the server back-to-back. Configurable via
+  `Client(chunk_cooldown=...)`; set to 0 to disable.
+
+- **`whoami()` does not silently clamp the caller's timeout.** The
+  Client has separate `timeout` (for `send`) and `whoami_timeout`
+  (default 30s) settings — if you set them explicitly, gungnir honors
+  what you set.
+
+- **User-Agent supports a `+url` suffix** per common bot-UA convention,
+  configurable via `Client(user_agent_extra="https://...")`. Lets
+  server admins trace traffic back to the source repo.
+
+- **Tool name is path-validated.** `Client(tool="...")` rejects names
+  containing `/`, `\`, `..`, or null bytes. Defensive — tools self-select
+  their name, but the check is free and the error message is clearer
+  than what the OS would raise later.
+
+- **PEP 561 compliance.** Ships `py.typed` marker so PyPI consumers
+  using mypy/pyright pick up inline type hints automatically.
+
+- **HWM file stores the full counters dict, not a single scalar.**
+  An earlier draft extracted `last_upload_imported` from the response,
+  but "imported" means different things to different slots (aircraft
+  vs networks vs meshcore). The HWM JSON now exposes `counters` with
+  every known counter the server returned.
+
+- **`SilentDrop.raw_text_excerpt` is named accurately.** An earlier
+  draft called it `raw_text` while in fact storing only the first 800
+  chars. The suffix is load-bearing.
+
+### Compatibility
+
+- **Byte-identical envelope output to Muninn v1.11.1** for any
+  `(payload, key, nonce)`. Existing deployments can be migrated to a
+  gungnir-backed Muninn v2.0 without any wire-protocol change. Verified
+  by `tests/test_muninn_parity.py`.
+
+- **Config-dir paths preserved** when `tool="muninn"` — Muninn 1.x's
+  `~/.config/muninn/api.key` (POSIX) and `%APPDATA%/muninn/api.key`
+  (Windows) are read/written unchanged.
+
+[Unreleased]: https://github.com/HiroAlleyCat/gungnir/compare/v0.1.0...HEAD
+[0.1.0]: https://github.com/HiroAlleyCat/gungnir/releases/tag/v0.1.0
