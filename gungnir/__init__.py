@@ -27,6 +27,7 @@ from .__version__ import __version__
 from . import cooldown, diagnostics, envelope, hwm, keys, transport
 from .diagnostics import SilentDrop, check_silent_drop
 from .envelope import build_envelope, build_payload
+from .keys import KeyFileSymlinkError
 from .transport import (
     BatchAborted,
     DEFAULT_BACKOFF_BASE,
@@ -52,6 +53,7 @@ __all__ = [
     "DEFAULT_MAX_ATTEMPTS",
     "DEFAULT_TIMEOUT",
     "DEFAULT_WHOAMI_TIMEOUT",
+    "KeyFileSymlinkError",
     "ME_API_URL",
     "SilentDrop",
     "__version__",

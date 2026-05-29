@@ -60,18 +60,49 @@ def load_key(tool: str, cli_key: str | None = None) -> str:
 
 
 def save_key(tool: str, key: str) -> None:
-    """Persist `key` to the per-tool key file with restrictive permissions
-    where supported. Creates the config dir if needed."""
+    """Persist ``key`` to the per-tool key file safely.
+
+    Defenses (extracted from Muninn v1.11.1's hardened save_key):
+
+    - **Refuse to write through a symlink.** If ``api.key`` already
+      exists as a symlink, raise ``KeyFileSymlinkError`` rather than
+      follow it. Closes a redirect-to-arbitrary-file attack vector for
+      anyone who can plant a symlink in the config dir.
+    - **Create with 0o600 atomically.** Open with ``O_WRONLY|O_CREAT|
+      O_TRUNC`` and mode 0o600 *before* writing the secret, so the file
+      is never world-readable — not even for the microseconds between
+      ``write_text`` and a subsequent ``chmod``.
+    - **Trailing newline.** POSIX convention; mirrors Muninn 1.x's file
+      shape so existing keys round-trip identically.
+
+    Windows uses NTFS ACLs and ignores the mode bits; the user profile
+    dir is already not world-readable by default.
+    """
     p = key_path(tool)
     p.parent.mkdir(parents=True, exist_ok=True)
-    p.write_text(key.strip())
-    # Tighten perms on POSIX. Windows uses NTFS ACLs and ignores chmod;
-    # the user profile dir is already not world-readable by default.
+    if p.is_symlink():
+        raise KeyFileSymlinkError(
+            f"refusing to write through symlink: {p} -> {os.readlink(p)}"
+        )
+    fd = os.open(str(p), os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+    try:
+        os.write(fd, (key.strip() + "\n").encode())
+    finally:
+        os.close(fd)
+    # Belt-and-suspenders chmod for the case where the file already
+    # existed with looser perms before this call (O_CREAT mode only
+    # applies on creation, not truncation).
     if os.name != "nt":
         try:
             os.chmod(p, 0o600)
         except Exception:
             pass
+
+
+class KeyFileSymlinkError(OSError):
+    """Raised by :func:`save_key` if the target key file is a symlink.
+    Surfaces what Muninn 1.x previously called ``sys.exit`` with — now
+    callers can catch and decide how to surface it (CLI exit, log, etc.)."""
 
 
 def scrub(text: str, key: str) -> str:
