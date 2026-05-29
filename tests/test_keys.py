@@ -14,7 +14,14 @@ from unittest import mock
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
-from gungnir.keys import config_dir, key_path, load_key, save_key, scrub  # noqa: E402
+from gungnir.keys import (  # noqa: E402
+    KeyFileSymlinkError,
+    config_dir,
+    key_path,
+    load_key,
+    save_key,
+    scrub,
+)
 
 
 class KeysTests(unittest.TestCase):
@@ -47,6 +54,34 @@ class KeysTests(unittest.TestCase):
                  mock.patch.dict(os.environ, {}, clear=True):
                 save_key("muninn", "secret-key-xyz")
                 self.assertEqual(load_key("muninn"), "secret-key-xyz")
+
+    @unittest.skipIf(os.name == "nt", "POSIX-only: symlinks require admin on Windows")
+    def test_save_key_refuses_to_follow_symlink(self):
+        """Anti-symlink-attack regression: if api.key already exists as
+        a symlink, save_key() must refuse to follow it. Muninn 1.x
+        hardening, now lifted into gungnir."""
+        with tempfile.TemporaryDirectory() as td:
+            target = Path(td) / "victim.txt"
+            target.write_text("original content")
+            link = Path(td) / "api.key"
+            link.symlink_to(target)
+            with mock.patch("gungnir.keys.key_path", return_value=link):
+                with self.assertRaises(KeyFileSymlinkError):
+                    save_key("muninn", "would-have-clobbered-victim")
+            # Victim untouched.
+            self.assertEqual(target.read_text(), "original content")
+
+    def test_save_key_writes_with_restrictive_mode_posix(self):
+        """POSIX: saved key file should be 0o600 (owner-only). On Windows
+        we just check the file exists; ACLs are inherited from the user
+        profile dir."""
+        with tempfile.TemporaryDirectory() as td:
+            fake = Path(td) / "api.key"
+            with mock.patch("gungnir.keys.key_path", return_value=fake):
+                save_key("muninn", "secret-key")
+            self.assertTrue(fake.exists())
+            if os.name != "nt":
+                self.assertEqual(fake.stat().st_mode & 0o777, 0o600)
 
     def test_scrub_redacts_key(self):
         out = scrub("error: bad key fooBARbazQUUX", "fooBARbazQUUX")
