@@ -7,6 +7,40 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.2] — default upload URL bypasses Cloudflare L7 rate-limit
+
+WDGoWars portal sits behind Cloudflare. Free tier cannot skip the
+`ddos_l7` phase via API. CF's automatic L7 DDoS protection per-IP-rate-
+limits bursts of `/api/*` requests with HTTP 429 + error code 1027,
+BEFORE the request reaches the origin's PHP. Surfaced via Muninn
+batch uploads (cron-driven RTL-SDR rig accumulating a shift then
+bulk-uploading) and portal-side `/profile` + `/map` fetches.
+
+Portal-side fix shipped 2026-05-31: `/endpoint/*` is a one-line PHP
+router alias of `/api/*`. Same router, same HMAC envelope, same
+response, but the URL pattern doesn't match Cloudflare's automatic
+pattern matching so the request reaches the origin.
+
+### Changed
+
+- `DEFAULT_API_URL` flipped from `https://wdgwars.pl/api/upload/` to
+  `https://wdgwars.pl/endpoint/upload/`. Every feeder using gungnir's
+  default (Muninn since v2.0.5, wigle-to-wdgwars on next bump,
+  future Heimdall, etc.) inherits the bypass.
+- `ME_API_URL` (`/api/me`) unchanged — single-call, not affected by
+  burst rate-limiting.
+
+### Compatibility
+
+- Callers passing an explicit `api_url=` to `Client(...)` or
+  `send(...)` are unaffected; the new default only matters when no
+  override is given.
+- The legacy `https://wdgwars.pl/api/upload/` keeps working on the
+  origin — `/endpoint/*` is purely an alias, not a replacement. Tools
+  can opt back into `/api/*` per-call if they need to.
+- `Client.send()` and the lower-level `transport.send()` retry/
+  cooldown/silent-drop behaviour is unchanged.
+
 ## [0.1.1] — save_key hardening
 
 Lifts two defenses from Muninn v1.11.1's `save_key` into gungnir so
