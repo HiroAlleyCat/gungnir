@@ -7,11 +7,14 @@ ecosystem of feeders. Speaks the HMAC-signed `/api/upload/` envelope, handles
 cooldown persistence, retries 429s, and detects the silent-drop failure mode
 where the server returns `HTTP 200 ok:true` with zero on every counter.
 
-## Used by
+## Family
 
-- **[Muninn](https://github.com/HiroAlleyCat/adsb-to-wdgwars)** — ADS-B feeder
-- **[Heimdall](https://github.com/HiroAlleyCat/meshcore-to-wdgwars)** — Meshcore feeder
-- **[wigle-to-wdgwars](https://github.com/HiroAlleyCat/wigle-to-wdgwars)** — WiFi/BLE feeder
+Sibling repos in the WDGoWars feeder family:
+
+- [Muninn](https://github.com/HiroAlleyCat/adsb-to-wdgwars) — ADS-B feeder
+- [Heimdall](https://github.com/HiroAlleyCat/meshcore-to-wdgwars) — MeshCore LoRa feeder
+- [wigle-to-wdgwars](https://github.com/HiroAlleyCat/wigle-to-wdgwars) — WiGLE Wi-Fi/BLE feeder
+- [wdgwars-api-tester](https://github.com/HiroAlleyCat/wdgwars-api-tester) — API surface probe
 
 ## Quick start
 
