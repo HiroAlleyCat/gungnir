@@ -7,6 +7,43 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.3] - structured HTTP 413 handling for the wdgwars.pl 15 MB upload cap
+
+LOCOSP rolled out a temporary 15 MB body cap on every wdgwars.pl upload
+endpoint on 2026-06-05. Workaround for CloudLinux LVE killing the PHP
+worker mid-buffer on bodies above roughly 20 MB. The server now returns
+a structured 413 envelope with `max_bytes` + `received` instead of a
+generic 500. Cap is expected to be removed in roughly two weeks when
+LOCOSP completes a host migration.
+
+Before this release, `send_chunk` would log 413 as a generic 4xx
+rejection. Functionally safe (no retry loop, no API blast), but
+structurally noisy: callers had no signal to differentiate "shrink your
+batch" from "your key is wrong". This release adds that signal.
+
+### Added
+
+- 413 + `payload-too-large` envelope detection in `send_chunk`. When
+  the server returns the cap envelope, gungnir logs `max_bytes`,
+  `received`, and the body size, records a cooldown via
+  `gungnir.cooldown.record` (default 30s, or `retry_after` if the
+  server populates it), and returns `(1, envelope)` so the caller can
+  see the structured fields. No retry, no BatchAborted: the caller may
+  have other queued payloads to attempt with smaller bodies.
+- 3 new tests in `tests/test_transport.py` covering: envelope detection
+  + cooldown recording + single-attempt contract; server-supplied
+  `retry_after` honored over the 30s default; non-LOCOSP 413 (CF or
+  upstream HTML body) falling through to the generic rejected branch.
+
+### Notes for callers
+
+The HMAC envelope is an atomic signed blob, so gungnir cannot bisect
+the payload on its own without invalidating the signature. Callers
+that produce variable-size payloads (Muninn aircraft batches,
+Heimdall mesh-node bursts) should treat a 413 as "shrink the batch
+and call again". For most feeders this never triggers: aircraft and
+mesh snapshots are kilobytes per cycle.
+
 ## [0.1.2] — default upload URL bypasses Cloudflare L7 rate-limit
 
 WDGoWars portal sits behind Cloudflare. Free tier cannot skip the

@@ -140,6 +140,72 @@ class SendChunkRetryTests(unittest.TestCase):
         self.assertEqual(ctx.exception.retry_after, 90.0)
         cooldown_record.assert_called_once_with("muninn", 90.0)
 
+    def test_413_payload_too_large_records_cooldown_and_returns_envelope(self):
+        """LOCOSP rolled out a 15 MB body cap with a structured 413 envelope
+        on 2026-06-05. Treat it like 429 (record a cooldown, don't retry),
+        but return rc=1 instead of raising BatchAborted — the caller may
+        have other queued payloads to attempt."""
+        envelope = (
+            b'{"ok":false,"error":"payload-too-large","http_status":413,'
+            b'"max_bytes":15728640,"received":31457480,"retry_after":0}'
+        )
+        urlopen = mock.MagicMock(side_effect=[_http_error(413, envelope)])
+        with mock.patch("urllib.request.urlopen", urlopen), \
+             mock.patch("gungnir.cooldown.record") as cooldown_record, \
+             mock.patch("gungnir.transport.time.sleep") as sleep:
+            rc, data = transport.send_chunk(
+                "muninn", "1.11.1",
+                "https://example.invalid/api/upload/",
+                "k", build_payload(aircraft=[{"icao": "AAAAAA"}]),
+                sent_count=1, max_attempts=3,
+            )
+        self.assertEqual(rc, 1)
+        self.assertEqual(data["error"], "payload-too-large")
+        self.assertEqual(data["max_bytes"], 15728640)
+        self.assertEqual(data["received"], 31457480)
+        # Cooldown recorded, default 30s when retry_after is 0/missing.
+        cooldown_record.assert_called_once()
+        self.assertEqual(cooldown_record.call_args.args[0], "muninn")
+        self.assertGreaterEqual(cooldown_record.call_args.args[1], 30.0)
+        # Single attempt only — must not retry the 413.
+        self.assertEqual(urlopen.call_count, 1)
+        sleep.assert_not_called()
+
+    def test_413_honors_server_retry_after_when_provided(self):
+        """If LOCOSP populates retry_after on the 413 envelope later, the
+        client must honor it instead of the 30s default."""
+        envelope = (
+            b'{"ok":false,"error":"payload-too-large","http_status":413,'
+            b'"max_bytes":15728640,"received":20000000,"retry_after":120}'
+        )
+        urlopen = mock.MagicMock(side_effect=[_http_error(413, envelope)])
+        with mock.patch("urllib.request.urlopen", urlopen), \
+             mock.patch("gungnir.cooldown.record") as cooldown_record:
+            rc, _ = transport.send_chunk(
+                "muninn", "1.11.1",
+                "https://example.invalid/api/upload/",
+                "k", build_payload(aircraft=[{"icao": "AAAAAA"}]),
+                sent_count=1, max_attempts=3,
+            )
+        self.assertEqual(rc, 1)
+        cooldown_record.assert_called_once_with("muninn", 120.0)
+
+    def test_413_without_envelope_falls_through_to_generic_rejected(self):
+        """A 413 from CF or any non-LOCOSP layer (no payload-too-large body)
+        must not get the structured treatment — it should hit the generic
+        rejected branch like any other 4xx, no cooldown recorded."""
+        urlopen = mock.MagicMock(side_effect=[_http_error(413, b"<html>nope</html>")])
+        with mock.patch("urllib.request.urlopen", urlopen), \
+             mock.patch("gungnir.cooldown.record") as cooldown_record:
+            rc, _ = transport.send_chunk(
+                "muninn", "1.11.1",
+                "https://example.invalid/api/upload/",
+                "k", build_payload(aircraft=[{"icao": "AAAAAA"}]),
+                sent_count=1, max_attempts=3,
+            )
+        self.assertEqual(rc, 1)
+        cooldown_record.assert_not_called()
+
     def test_silent_drop_returns_rc1_not_batch_aborted(self):
         """Silent drop is per-chunk — the next chunk might succeed."""
         ok_silent = b'{"ok": true, "aircraft_imported": 0, "aircraft_already_seen": 0}'

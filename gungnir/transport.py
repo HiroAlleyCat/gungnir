@@ -220,6 +220,19 @@ def send_chunk(
                 cooldown.record(tool, wait)
                 raise BatchAborted("rate limited (429)", retry_after=wait) from None
 
+            if e.code == 413 and last_response.get("error") == "payload-too-large":
+                max_b = last_response.get("max_bytes")
+                recv = last_response.get("received")
+                wait = float(last_response.get("retry_after") or 30)
+                log.error(
+                    "[%s] 413 payload-too-large (max_bytes=%s received=%s body=%d B); "
+                    "recording %ds cooldown. Shrink the batch before retrying — gungnir "
+                    "envelopes are HMAC-signed atomic blobs and cannot be bisected here.",
+                    tool, max_b, recv, len(body), int(wait),
+                )
+                cooldown.record(tool, wait)
+                return 1, last_response
+
             if 500 <= e.code < 600 and attempt < max_attempts:
                 wait = backoff_base * (2 ** (attempt - 1))
                 log.warning("[%s] HTTP %d, retrying in %.1fs (attempt %d/%d): %s",
